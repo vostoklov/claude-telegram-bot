@@ -26,13 +26,13 @@ db.run(`CREATE TABLE IF NOT EXISTS messages (
 // Функция вызова Claude API
 async function callClaude(prompt, conversationHistory = []) {
     try {
+        // Определяем системный промпт для Claude — передаётся отдельно, не в messages
+        const systemPrompt = `Ты помощник Ивана через Telegram бота. Отвечай кратко, дружелюбно и по делу, в стиле обычного общения. 
+        Если Иван пересылает диалоги или сообщения, помоги их обработать или проанализировать по его просьбе.
+        Текущее время: ${new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan' })}.`;
+
+        // Формируем messages без системной роли: берём историю переписки и текущее сообщение
         const messages = [
-            {
-                role: "system",
-                content: `Ты помощник Ивана через Telegram бота. Отвечай кратко, дружелюбно и по делу, в стиле обычного общения. 
-                Если Иван пересылает диалоги или сообщения, помоги их обработать или проанализировать по его просьбе.
-                Текущее время: ${new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Yerevan' })}.`
-            },
             ...conversationHistory,
             {
                 role: "user", 
@@ -48,8 +48,9 @@ async function callClaude(prompt, conversationHistory = []) {
                 "anthropic-version": "2023-06-01"
             },
             body: JSON.stringify({
-                model: "claude-3-sonnet-20240229",
+                model: "claude-sonnet-4-20250514",
                 max_tokens: 1500,
+                system: systemPrompt,
                 messages: messages
             })
         });
@@ -60,7 +61,7 @@ async function callClaude(prompt, conversationHistory = []) {
             throw new Error(`Claude API error: ${data.error?.message || 'Unknown error'}`);
         }
 
-        return data.content[0].text;
+        return data.content?.[0]?.text || data.content || '';
     } catch (error) {
         console.error('Claude API Error:', error);
         return `❌ Ошибка связи с Claude: ${error.message}`;
