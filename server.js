@@ -148,16 +148,30 @@ const commands = {
 
     '/analyze': async (msg) => {
         try {
-            const history = await getMessageHistory(60); // Последний час
+            // Проверяем, есть ли текст после команды
+            const commandText = msg.text.replace('/analyze', '').trim();
             
-            if (history.length === 0) {
-                bot.sendMessage(msg.chat.id, '📭 Нет данных для анализа');
-                return;
-            }
+            let historyText = '';
+            
+            if (commandText) {
+                // Если есть текст после команды, анализируем его
+                historyText = commandText;
+                bot.sendMessage(msg.chat.id, '🔍 Анализирую переданный диалог...');
+            } else {
+                // Если текста нет, берём историю сообщений
+                const history = await getMessageHistory(60); // Последний час
+                
+                if (history.length === 0) {
+                    bot.sendMessage(msg.chat.id, '📭 Нет данных для анализа');
+                    return;
+                }
 
-            const historyText = history.map(h => 
-                `${h.username}: ${h.message_text}`
-            ).join('\n');
+                historyText = history.map(h => 
+                    `${h.username}: ${h.message_text}`
+                ).join('\n');
+                
+                bot.sendMessage(msg.chat.id, '🔍 Анализирую переписку...');
+            }
 
             const prompt = `Проанализируй эту переписку и дай краткие инсайты:
             
@@ -165,7 +179,6 @@ ${historyText}
 
 Что интересного в диалоге? Какие темы, настроение, паттерны?`;
 
-            bot.sendMessage(msg.chat.id, '🔍 Анализирую переписку...');
             const analysis = await callClaude(prompt);
             
             bot.sendMessage(msg.chat.id, `📊 *Анализ переписки:*\n\n${analysis}`, {
