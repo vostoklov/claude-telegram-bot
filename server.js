@@ -332,6 +332,10 @@ bot.on('message', async (msg) => {
         return;
     }
 
+    // Debug: логируем каждое сообщение
+    console.log(`Message type: ${msg.forward_from ? 'forwarded_from_user' : msg.forward_from_chat ? 'forwarded_from_chat' : 'regular'}`);
+    console.log(`Message text: ${text}`);
+    
     // Обработка пересланных сообщений
     if (msg.forward_from || msg.forward_from_chat) {
         console.log('Received forwarded message, adding to buffer');
@@ -350,7 +354,9 @@ bot.on('message', async (msg) => {
             }, BATCH_TIMEOUT);
         }
         
-        return; // Не обрабатываем пересланные сообщения дальше
+        // ВАЖНО: не обрабатываем пересланные сообщения дальше
+        console.log('Returning early for forwarded message');
+        return;
     }
 
     // Сохраняем обычное сообщение
