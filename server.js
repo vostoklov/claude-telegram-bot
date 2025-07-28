@@ -87,7 +87,51 @@ function getMessageHistory(minutes = 30, limit = 50) {
     });
 }
 
-// Функция сохранения сообщения
+// Буфер для пересланных сообщений
+let forwardedMessagesBuffer = [];
+let forwardedMessagesTimer = null;
+const BATCH_TIMEOUT = 60000; // 1 минута в миллисекундах
+
+// Функция обработки накопленных пересланных сообщений
+async function processForwardedBatch(chatId) {
+    if (forwardedMessagesBuffer.length === 0) return;
+    
+    try {
+        // Объединяем все пересланные сообщения
+        const combinedText = forwardedMessagesBuffer
+            .map(msg => {
+                const sender = msg.forward_from?.first_name || 
+                             msg.forward_from?.username || 
+                             msg.forward_from_chat?.title || 
+                             'Unknown';
+                return `${sender}: ${msg.text || msg.caption || '[Media]'}`;
+            })
+            .join('\n');
+
+        // Отправляем на анализ
+        bot.sendMessage(chatId, '🔍 Анализирую пересланные сообщения...');
+        
+        const prompt = `Проанализируй эти пересланные из чата сообщения и объедини их в связный контекст:
+
+${combinedText}
+
+Дай краткий анализ: основные темы, настроение участников, ключевые моменты диалога.`;
+
+        const analysis = await callClaude(prompt);
+        
+        bot.sendMessage(chatId, `📊 *Анализ пересланных сообщений:*\n\n${analysis}`, {
+            parse_mode: 'Markdown'
+        });
+        
+        // Очищаем буфер
+        forwardedMessagesBuffer = [];
+        
+    } catch (error) {
+        console.error('Error processing forwarded batch:', error);
+        bot.sendMessage(chatId, '❌ Ошибка анализа пересланных сообщений');
+        forwardedMessagesBuffer = [];
+    }
+}
 function saveMessage(userId, username, text, type = 'text', isCommand = false) {
     db.run(
         'INSERT INTO messages (user_id, username, message_text, message_type, is_command) VALUES (?, ?, ?, ?, ?)',
@@ -106,6 +150,7 @@ const commands = {
 • \`/analyze\` - Анализ последних сообщений
 • \`/summary [минуты]\` - Краткое резюме переписки
 • \`/clear\` - Очистить историю
+• \`/process\` - Обработать накопленные пересланные сообщения досрочно
 • \`/stats\` - Статистика бота
 
 Или просто напиши что-нибудь, и я отвечу через Claude! 💬
@@ -186,6 +231,20 @@ ${historyText}
             });
         } catch (error) {
             bot.sendMessage(msg.chat.id, '❌ Ошибка анализа');
+        }
+    },
+
+    '/process': async (msg) => {
+        // Мануальная команда для обработки накопленных пересланных сообщений
+        if (forwardedMessagesBuffer.length > 0) {
+            if (forwardedMessagesTimer) {
+                clearTimeout(forwardedMessagesTimer);
+                forwardedMessagesTimer = null;
+            }
+            await processForwardedBatch(msg.chat.id);
+            bot.sendMessage(msg.chat.id, '✅ Обработал накопленные сообщения досрочно');
+        } else {
+            bot.sendMessage(msg.chat.id, '📭 Нет пересланных сообщений для обработки');
         }
     },
 
@@ -273,13 +332,28 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Игнорируем пересланные сообщения для обработки Claude
+    // Обработка пересланных сообщений
     if (msg.forward_from || msg.forward_from_chat) {
-        console.log('Ignoring forwarded message');
-        return;
+        console.log('Received forwarded message, adding to buffer');
+        
+        // Добавляем в буфер
+        forwardedMessagesBuffer.push(msg);
+        
+        // Если это первое сообщение в буфере, запускаем таймер
+        if (forwardedMessagesBuffer.length === 1) {
+            bot.sendMessage(chatId, '📝 Получены пересланные сообщения, жду остальные (60 сек)...');
+            
+            forwardedMessagesTimer = setTimeout(() => {
+                console.log('Processing forwarded messages batch');
+                processForwardedBatch(chatId);
+                forwardedMessagesTimer = null;
+            }, BATCH_TIMEOUT);
+        }
+        
+        return; // Не обрабатываем пересланные сообщения дальше
     }
 
-    // Сохраняем сообщение
+    // Сохраняем обычное сообщение
     const isCommand = text.startsWith('/');
     saveMessage(userId, username, text, 'text', isCommand);
 
